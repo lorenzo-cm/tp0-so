@@ -52,7 +52,7 @@ struct pipecmd {
 int fork1(void);  // Fork mas fechar se ocorrer erro.
 struct cmd *parsecmd(char*); // Processar o linha de comando.
 
-/* Executar comando cmd.  Nunca retorna. */
+/* Executar comando com cmd apropriado.  Nunca retorna. */
 void
 runcmd(struct cmd *cmd)
 {
@@ -65,6 +65,7 @@ runcmd(struct cmd *cmd)
     exit(0);
   
   switch(cmd->type){
+
   default:
     fprintf(stderr, "tipo de comando desconhecido\n");
     exit(-1);
@@ -73,36 +74,102 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(0);
+
     /* MARK START task2
      * TAREFA2: Implemente codigo abaixo para executar
      * comandos simples. */
-    fprintf(stderr, "exec nao implementado\n");
+
+    execvp(ecmd->argv[0], ecmd->argv);
+
     /* MARK END task2 */
+
     break;
 
   case '>':
   case '<':
     rcmd = (struct redircmd*)cmd;
+
     /* MARK START task3
      * TAREFA3: Implemente codigo abaixo para executar
      * comando com redirecionamento. */
-    fprintf(stderr, "redir nao implementado\n");
+    
+    // não precisa verificar o tipo pois a propria classe ja tem tudo incluso
+
+    // Abre o arquivo conforme especificado na estrutura redircmd
+    int current_fd = open(rcmd->file, rcmd->mode, S_IRWXU);
+
+    if (current_fd < 0) { // Verifica se a abertura do arquivo foi bem-sucedida
+      perror("open");
+      exit(1);
+    }
+
+    // Duplica o descritor para o especificado em rcmd->fd
+    if (dup2(current_fd, rcmd->fd) < 0) {
+      perror("dup2");
+      close(current_fd); // fecha em caso de erro
+      exit(1);
+    }
+    
+    close(current_fd); // Fecha o descritor original, já não é mais necessário
+
     /* MARK END task3 */
     runcmd(rcmd->cmd);
     break;
 
   case '|':
     pcmd = (struct pipecmd*)cmd;
+
     /* MARK START task4
      * TAREFA4: Implemente codigo abaixo para executar
      * comando com pipes. */
-    fprintf(stderr, "pipe nao implementado\n");
+
+    // deve ser algo recursivo, pode ter multiplos pipes
+
+    if(pipe(p) < 0) {
+      perror("pipe");
+      exit(1);
+    }
+    
+    r = fork();
+    if(r < 0) {
+      perror("fork");
+      exit(1);
+    }
+    
+    if(r == 0) { // Processo filho: lado esquerdo do pipe
+      close(p[0]); // Fecha o lado de leitura, não utilizado pelo filho
+      dup2(p[1], STDOUT_FILENO); // Redireciona stdout para o lado de escrita do pipe
+      close(p[1]); // Fecha o descritor de escrita do pipe, não mais necessário
+      runcmd(pcmd->left); // Executa o comando do lado esquerdo recursivamente
+    }
+    
+    else {
+      // Processo pai: aguarda o filho terminar
+      wait(NULL);
+      close(p[1]); // Fecha o lado de escrita, não utilizado pelo pai
+      dup2(p[0], STDIN_FILENO); // Redireciona stdin para o lado de leitura do pipe
+      close(p[0]); // Fecha o descritor de leitura do pipe, não mais necessário
+      runcmd(pcmd->right); // Executa o comando do lado direito recursivamente
+    }
+
     /* MARK END task4 */
     break;
-  }    
+
+
+  }
   exit(0);
 }
 
+/**
+ * @brief Lê uma linha de comando do usuário, armazenando-a em um buffer.
+ * 
+ * Exibe um prompt (`$ `) se a entrada padrão é um terminal. Se o fim do arquivo (EOF) é encontrado
+ * antes de qualquer caractere ser lido, a função retorna -1, indicando que não há mais entrada disponível.
+ * 
+ * @param buf Ponteiro para o buffer onde a linha de comando será armazenada.
+ * @param nbuf O tamanho do buffer fornecido. A função garante que não ultrapasse esse limite.
+ * @return int Retorna 0 se uma linha foi lida com sucesso; retorna -1 se o fim do arquivo foi encontrado imediatamente.
+ */
 int
 getcmd(char *buf, int nbuf)
 {
@@ -123,16 +190,19 @@ main(void)
 
   // Ler e rodar comandos.
   while(getcmd(buf, sizeof(buf)) >= 0){
+    
     /* MARK START task1 */
     /* TAREFA1: O que faz o if abaixo e por que ele é necessário?
-     * Insira sua resposta no código e modifique o fprintf abaixo
-     * para reportar o erro corretamente. */
+     * O if abaixo trata do comando cd (change directory)
+     * Caso dê erro, ele é reportado */
+
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       buf[strlen(buf)-1] = 0;
       if(chdir(buf+3) < 0)
-        fprintf(stderr, "reporte erro\n");
+        fprintf(stderr, "comando cd falhou\n");
       continue;
     }
+    
     /* MARK END task1 */
 
     if(fork1() == 0)
@@ -142,6 +212,11 @@ main(void)
   exit(0);
 }
 
+/**
+ * @brief Faz um fork, retorna o pid e lida com eventual falha
+ * 
+ * @return int Retorna o pid do processo e -1 caso ele falhe
+ */
 int
 fork1(void)
 {
@@ -183,6 +258,17 @@ redircmd(struct cmd *subcmd, char *file, int type)
   return (struct cmd*)cmd;
 }
 
+
+/**
+ * @brief Cria uma estrutura de comando que representa um pipeline entre dois comandos.
+ * 
+ * Aloca e inicializa uma estrutura de comando do tipo pipeline, onde o comando à esquerda
+ * do pipe é executado e sua saída é conectada à entrada do comando à direita do pipe.
+ * 
+ * @param left Ponteiro para a estrutura de comando que será executada à esquerda do pipe.
+ * @param right Ponteiro para a estrutura de comando que será executada à direita do pipe.
+ * @return struct cmd* Ponteiro para a estrutura de comando do tipo pipeline criada.
+ */
 struct cmd*
 pipecmd(struct cmd *left, struct cmd *right)
 {
@@ -203,6 +289,19 @@ pipecmd(struct cmd *left, struct cmd *right)
 char whitespace[] = " \t\r\n\v";
 char symbols[] = "<|>";
 
+
+/**
+ * @brief Identifica e extrai o próximo token da string de comando.
+ * 
+ * Avança sobre espaços, identifica tokens como comandos, argumentos ou símbolos (e.g., '|', '<', '>'),
+ * e atualiza os ponteiros para delimitar o token. Usada para análise sintática de comandos.
+ * 
+ * @param ps Endereço do ponteiro para a posição atual, atualizado após extração.
+ * @param es Ponteiro para o final da string de comando.
+ * @param q (Se não NULL) Atualizado para o início do token.
+ * @param eq (Se não NULL) Atualizado para o final do token.
+ * @return Caractere que indica o tipo do token, ou 0 se nenhum for encontrado.
+ */
 int
 gettoken(char **ps, char *es, char **q, char **eq)
 {
@@ -240,6 +339,18 @@ gettoken(char **ps, char *es, char **q, char **eq)
   return ret;
 }
 
+
+/**
+ * @brief Verifica se o token especificado é o próximo na string de comandos
+ * 
+ * Avança verificando se o próximo caractere não nulo é um token reconhecido.
+ * Não consome o token, permitindo inspeções futuras.
+ * 
+ * @param ps Ponteiro para o ponteiro da posição atual na string de comando. Será atualizado para apontar para o próximo caractere não branco.
+ * @param es Ponteiro para o final da string de comando.
+ * @param toks String contendo os caracteres token a serem procurados.
+ * @return int Retorna 1 (verdadeiro) se o próximo caractere não branco é um dos tokens, 0 (falso) caso contrário.
+ */
 int
 peek(char **ps, char *es, char *toks)
 {
@@ -269,12 +380,24 @@ char
   return c;
 }
 
+
+/**
+ * @brief Analisa uma string de comando para construir uma representação estruturada de comandos.
+ * 
+ * Divide a string de comando em tokens e constrói uma árvore de comandos
+ * correspondente, que pode representar comandos simples, pipelines, e redirecionamentos.
+ * Em caso de erro de sintaxe ou se a análise não consumir toda a entrada, termina o programa.
+ * 
+ * @param s String de comando a ser analisada.
+ * @return struct cmd* Ponteiro para a estrutura de comando construída.
+ */
 struct cmd*
 parsecmd(char *s)
 {
   char *es;
   struct cmd *cmd;
 
+  // aponta para o final de s, ou seja, o caracter \0
   es = s + strlen(s);
   cmd = parseline(&s, es);
   peek(&s, es, "");
@@ -285,27 +408,73 @@ parsecmd(char *s)
   return cmd;
 }
 
+
+/**
+ * @brief Inicia o parsing para saber o comando a ser executado
+ * 
+ * @param ps Ponteiro para o início da string de comando a ser analisada.
+ * @param es Ponteiro para o final da string de comando.
+ * @return struct cmd* Estrutura do comando representando o comando a ser executado
+ */
 struct cmd*
 parseline(char **ps, char *es)
 {
   struct cmd *cmd;
+  // começa parsando o pipe
   cmd = parsepipe(ps, es);
   return cmd;
 }
 
+
+/**
+ * @brief Analisa pipelines entre comandos na string fornecida.
+ * 
+ * Recursivamente constrói estruturas de comandos para representar pipelines
+ * Chama a função parseexec, caso for o comando de exec
+ * 
+ * @param ps Ponteiro atual na string de comando.
+ * @param es Ponteiro para o final da string de comando.
+ * @return struct cmd* Estrutura do comando representando o pipeline.
+ */
 struct cmd*
 parsepipe(char **ps, char *es)
 {
   struct cmd *cmd;
 
+  // caso for o comando de exec
   cmd = parseexec(ps, es);
+
+  // caso haja o caracter de pipe, deve-se fazer a analise dos dois lados
+  // por isso a recursão
   if(peek(ps, es, "|")){
+
+    // ps -> pointer to the start -- aponta para o começo da string de comando
+    // string de comando não é a string toda, ela
+    // es -> end of the string -- aponta para \0
+
+    // no caso ps e es vao apontar para o comeco e final do segundo comando
+    // e assim por diante caso hajam mais pipes
     gettoken(ps, es, 0, 0);
+
+    // retorna um pipecmd (precisa de 2 cmds, left e right)
     cmd = pipecmd(cmd, parsepipe(ps, es));
   }
+
   return cmd;
 }
 
+
+/**
+ * @brief Analisa e aplica redirecionamentos de entrada/saída a uma estrutura de comando.
+ *
+ * Verifica se tem os tokens <>, caso haja, verifica para ver se tem um arquivo especificado
+ * isso pode ser visto pois gettoken retorna argumento padrao 'a'
+ *
+ * @param cmd A estrutura de comando a ser modificada com os redirecionamentos.
+ * @param ps Endereço do ponteiro para a posição atual na string de comando.
+ * @param es Ponteiro para o final da string de comando.
+ * @return struct cmd* Retorna o redircmd com o redirecionamento especificado
+ */
 struct cmd*
 parseredirs(struct cmd *cmd, char **ps, char *es)
 {
@@ -330,6 +499,17 @@ parseredirs(struct cmd *cmd, char **ps, char *es)
   return cmd;
 }
 
+
+/**
+ * @brief Analisa comandos individuais e seus argumentos da string de comando.
+ * 
+ * Constrói uma estrutura de comando executável com os argumentos fornecidos,
+ * lidando com redirecionamentos de entrada/saída conforme necessário.
+ * 
+ * @param ps Ponteiro atual na string de comando.
+ * @param es Ponteiro para o final da string de comando.
+ * @return struct cmd* Estrutura de comando executável construída a partir da análise.
+ */
 struct cmd*
 parseexec(char **ps, char *es)
 {
@@ -342,7 +522,11 @@ parseexec(char **ps, char *es)
   cmd = (struct execcmd*)ret;
 
   argc = 0;
+
+  // verificar encaminhamento antes
+  // ex) > file.out command arg1
   ret = parseredirs(ret, ps, es);
+
   while(!peek(ps, es, "|")){
     if((tok=gettoken(ps, es, &q, &eq)) == 0)
       break;
@@ -356,6 +540,9 @@ parseexec(char **ps, char *es)
       fprintf(stderr, "too many args\n");
       exit(-1);
     }
+
+    // verificar encaminhamento depois
+    // ex) command arg1 > file.out
     ret = parseredirs(ret, ps, es);
   }
   cmd->argv[argc] = 0;
