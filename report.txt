@@ -1,0 +1,34 @@
+RELATÓRIO
+
+1. Termo de compromisso
+
+Os membros do grupo afirmam que todo o código desenvolvido para este
+trabalho é de autoria própria.  Exceto pelo material listado no item 3
+deste relatório, os membros do grupo afirmam não ter copiado
+material da Internet nem obtiveram código de terceiros.
+
+2. Membros do grupo e alocação de esforço
+
+Preencha as linhas abaixo com o nome e o e-mail dos integrantes do
+grupo.  Substitua XX pela contribuição de cada membro do grupo no
+desenvolvimento do trabalho.
+
+Lorenzo Carneiro Magalhães <lorenzocarneirobr@gmail.com> 60%
+Tomas Lacerda Muniz <tomastlm2000@gmail.com> 40%
+
+3. Referências bibliográficas
+
+ChatGPT - Contribuição com a documentação e com o debug de file descriptors
+Código do livro OSTEP book
+
+4. Estruturas de dados
+
+Há muitos comentários no código explicando a linha de raciocínio desenvolvidas.
+Mas fazendo uma sinopse do que fizemos:
+- Buscamos compreender o código primeiramente
+- Após compreender a maior parte do código, checamos a sintaxe e semântica das funções do SO que são implementadas no C
+- A partir disso, restou apenas a lógica, que nesse caso não era tão difícil
+
+Na task de execução e de redirecionamento de entrada, basicamente tomamos como base o código do OSTEP book.
+
+Na de pipe foi algo mais complexo, pois tivemos dificuldade em lidar com a manipulação de arquivos no que se diz respeito a entradas e saídas, e abrir e fechar os arquivos. Então utilizamos o chatGPT para ajudar com debug, o que resolveu o nosso problema e nos explicou o que estava errado.

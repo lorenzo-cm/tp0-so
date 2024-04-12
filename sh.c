@@ -8,9 +8,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-/* MARK NAME Lorenzo */
-/* MARK NAME Nome de Outro Integrante Aqui */
-/* MARK NAME E Etc */
+/* MARK NAME Lorenzo Carneiro Magalhães */
+/* MARK NAME Tomas Lacerda Muniz */
 
 /****************************************************************
  * Shell xv6 simplificado
@@ -79,6 +78,7 @@ runcmd(struct cmd *cmd)
      * TAREFA2: Implemente codigo abaixo para executar
      * comandos simples. */
 
+    // apenas execução do execvp com adequacao aos parametros
     execvp(ecmd->argv[0], ecmd->argv);
 
     /* MARK END task2 */
@@ -98,22 +98,26 @@ runcmd(struct cmd *cmd)
     // Abre o arquivo conforme especificado na estrutura redircmd
     int current_fd = open(rcmd->file, rcmd->mode, S_IRWXU);
 
-    if (current_fd < 0) { // Verifica se a abertura do arquivo foi bem-sucedida
-      perror("open");
+    if (current_fd < 0) {
+      // Verifica se a abertura do arquivo foi bem-sucedida
+      perror("open file failed"); // perror é usada em fork1 então assumo que é o correto
       exit(1);
     }
 
     // Duplica o descritor para o especificado em rcmd->fd
     if (dup2(current_fd, rcmd->fd) < 0) {
-      perror("dup2");
-      close(current_fd); // fecha em caso de erro
+      perror("dup2 failed");
+      close(current_fd);
       exit(1);
     }
     
-    close(current_fd); // Fecha o descritor original, já não é mais necessário
+    // Fecha o descritor
+    close(current_fd); 
+
+    // rodar com os files descriptors configurados
+    runcmd(rcmd->cmd);
 
     /* MARK END task3 */
-    runcmd(rcmd->cmd);
     break;
 
   case '|':
@@ -123,33 +127,54 @@ runcmd(struct cmd *cmd)
      * TAREFA4: Implemente codigo abaixo para executar
      * comando com pipes. */
 
-    // deve ser algo recursivo, pode ter multiplos pipes
+    // Deve ser algo recursivo, pode ter multiplos pipes
 
-    if(pipe(p) < 0) {
-      perror("pipe");
+    // Descricao do metodo pipe
+    /* Create a one-way communication channel (pipe).
+    If successful, two file descriptors are stored in PIPEDES;
+    bytes written on PIPEDES[1] can be read from PIPEDES[0].
+    Returns 0 if successful, -1 if not.  */
+
+    if(pipe(p) == -1) {
+      perror("Pipe failed");
       exit(1);
     }
     
-    r = fork();
-    if(r < 0) {
-      perror("fork");
-      exit(1);
-    }
+    // Usarei a funcao feita por padrao que ja lida com o erro do fork
+    r = fork1();
     
-    if(r == 0) { // Processo filho: lado esquerdo do pipe
-      close(p[0]); // Fecha o lado de leitura, não utilizado pelo filho
-      dup2(p[1], STDOUT_FILENO); // Redireciona stdout para o lado de escrita do pipe
-      close(p[1]); // Fecha o descritor de escrita do pipe, não mais necessário
-      runcmd(pcmd->left); // Executa o comando do lado esquerdo recursivamente
+    if(r == 0) {
+      // Processo filho vai executar parte esquerda -> direcionar output para outro comando
+
+      // Fecha o lado de leitura
+      close(p[0]);
+
+      // Redireciona stdout para o lado de escrita (direito) do pipe
+      dup2(p[1], STDOUT_FILENO);
+
+      // Fecha o descritor de escrita do pipe (aparentemente esse passo é necessario)
+      close(p[1]); 
+
+      // Executa o comando do lado esquerdo recursivamente
+      runcmd(pcmd->left); 
     }
     
     else {
-      // Processo pai: aguarda o filho terminar
+      // Processo pai aguarda o filho terminar, receber a entrada do comando previo executado e executar 
       wait(NULL);
-      close(p[1]); // Fecha o lado de escrita, não utilizado pelo pai
-      dup2(p[0], STDIN_FILENO); // Redireciona stdin para o lado de leitura do pipe
-      close(p[0]); // Fecha o descritor de leitura do pipe, não mais necessário
-      runcmd(pcmd->right); // Executa o comando do lado direito recursivamente
+
+      // Fecha o lado de escrita que não é utilizado
+      // Aparentemente precisa fechar mesmo após o fechamento dele pelo filho, pelo que entendi é uma cópia
+      close(p[1]);
+
+      // Redireciona stdin para o lado de leitura do pipe
+      dup2(p[0], STDIN_FILENO);
+
+      // Fecha o descritor de leitura do pipe (aparentemente esse passo é necessario)
+      close(p[0]);
+
+      // Executa o comando do lado direito recursivamente
+      runcmd(pcmd->right);
     }
 
     /* MARK END task4 */
